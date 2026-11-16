@@ -208,4 +208,43 @@ class SyncLocationsCommandTest extends TestCase
         $this->assertSame(1, $exitCode);
         $this->assertDatabaseCount('schools', 0);
     }
+
+    public function test_region_continua_con_las_siguientes_regiones(): void
+    {
+        Http::fake(function ($request) {
+            $url = $request->url();
+
+            if (str_ends_with($url, '/regiones')) {
+                return Http::response([
+                    'region' => [
+                        ['idRegion' => '15', 'nombreRegion' => 'LIMA'],
+                        ['idRegion' => '16', 'nombreRegion' => 'LORETO'],
+                    ],
+                ], 200);
+            }
+
+            if (str_contains($url, '/provincias')) {
+                $region = $request->data()['idRegion'] ?? '';
+
+                return Http::response([
+                    'provincia' => [[
+                        'idProvincia' => $region.'01',
+                        'nombreProvincia' => 'PROVINCIA '.$region,
+                    ]],
+                ], 200);
+            }
+
+            if (str_contains($url, '/distritos')) {
+                return Http::response(['distrito' => []], 200);
+            }
+
+            return Http::response([], 200);
+        });
+
+        $exitCode = Artisan::call('sync:locations', ['--region' => '15']);
+
+        $this->assertSame(0, $exitCode);
+        $this->assertDatabaseHas('provinces', ['idProvincia' => '1501']);
+        $this->assertDatabaseHas('provinces', ['idProvincia' => '1601']);
+    }
 }

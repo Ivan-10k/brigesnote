@@ -102,13 +102,19 @@ class SyncLocations extends Command
             return;
         }
 
+        $started = $onlyRegionId === null;
+
         foreach ($regions as $region) {
             if (! isset($region['idRegion'])) {
                 continue;
             }
 
-            if ($onlyRegionId !== null && $region['idRegion'] !== $onlyRegionId) {
-                continue;
+            if (! $started) {
+                if ($region['idRegion'] !== $onlyRegionId) {
+                    continue;
+                }
+
+                $started = true;
             }
 
             $this->syncProvinces($region['idRegion']);
