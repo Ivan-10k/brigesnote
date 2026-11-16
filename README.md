@@ -1,6 +1,6 @@
 # 🏫 Bridges Note - MINEDU ESCALE Bridge API
 
-Microservicio y API REST en **Laravel 7** diseñado para sincronizar, estructurar y servir el catálogo oficial de instituciones educativas (colegios) y la división política/geográfica (regiones, provincias y distritos) del Perú, consumiendo directamente la API pública oficial de **MINEDU / ESCALE** (*Estadística de la Calidad Educativa*).
+Microservicio y API REST en **Laravel 13** y **PHP 8.3** diseñado para sincronizar, estructurar y servir el catálogo oficial de instituciones educativas (colegios) y la división política/geográfica (regiones, provincias y distritos) del Perú, consumiendo directamente la API pública oficial de **MINEDU / ESCALE** (*Estadística de la Calidad Educativa*).
 
 ---
 
@@ -52,12 +52,12 @@ Servir como un **puente de datos optimizado** para aplicaciones cliente (sistema
 
 ## 💻 Requisitos del Sistema
 
-- **PHP:** `7.4.x` (Recomendado) o `8.0.x`.
-  > ⚠️ **Importante:** Laravel 7 no es compatible con PHP 8.1 o superior debido a cambios en la interfaz `ArrayAccess`.
-- **Laravel Framework:** `7.30.7`
-- **Gestor de Paquetes:** Composer 2.x
-- **Base de Datos:** MySQL 5.7+ / 8.0+ o MariaDB 10.3+
-- **Servidor Web Local:** Laragon (con PHP 7.4 Thread Safe - TS), XAMPP o `php artisan serve`.
+- **PHP:** `8.3.36` (probado) o superior dentro del rango soportado por Laravel 13.
+- **Laravel Framework:** `13.x`
+- **Gestor de Paquetes:** Composer `2.8+`
+- **Base de Datos:** MySQL `8.0+` o MariaDB `10.6+`
+- **Servidor Web Local:** Laragon, XAMPP o `php artisan serve`.
+- **DocumentRoot:** debe apuntar obligatoriamente a `public/`; nunca a la raíz del proyecto.
 
 ---
 
@@ -80,6 +80,8 @@ Copia el archivo de ejemplo y genera la clave de cifrado:
 cp .env.example .env
 php artisan key:generate
 ```
+
+> ⚠️ **Seguridad:** configura el servidor web con DocumentRoot en `public/`. Los archivos `.env`, `vendor/` y `storage/` no deben quedar expuestos.
 
 ### 4. Crear la Base de Datos
 Crea una base de datos vacía en tu gestor MySQL (ej. HeidiSQL o phpMyAdmin):
@@ -125,9 +127,11 @@ DB_DATABASE=escalebridge
 DB_USERNAME=root
 DB_PASSWORD=
 
-# Controlador de sesión en archivo (no requiere tabla 'sessions' en BD)
+# Almacenamiento en archivo (no requiere tablas 'sessions' ni 'cache' en BD)
 SESSION_DRIVER=file
-CACHE_DRIVER=file
+CACHE_STORE=file
+FILESYSTEM_DISK=local
+BROADCAST_CONNECTION=log
 QUEUE_CONNECTION=sync
 ```
 
@@ -145,9 +149,15 @@ php artisan sync:locations
 1. **Regiones (`/padron/rest/regiones`):** Descarga los 25 departamentos del país con sus nombres, coordenadas (`pointX`, `pointY`) y nivel de `zoom`.
 2. **Provincias (`/padron/rest/provincias?idRegion={id}`):** Por cada región, descarga sus provincias.
 3. **Distritos (`/padron/rest/distritos?idProvincia={id}`):** Por cada provincia, descarga los distritos correspondientes.
-4. **Colegios (`/padron/rest/instituciones?estados=1&ubigeo={idDistrito}`):** Por cada distrito, descarga las instituciones educativas activas y las almacena en la tabla `schools` vinculando el código modular (`codMod`) como llave primaria y asociando el `idDistrito`.
+4. **Colegios (`/padron/rest/instituciones?estados=1&ubigeo={idDistrito}`):** Por cada distrito, descarga las instituciones educativas activas paginando de 50 en 50 con el parámetro `start`, deduplica por `codMod` y las almacena en la tabla `schools` vinculando el código modular como llave primaria y asociando el `idDistrito`.
 
 > ⏱️ **Nota:** La sincronización total recorre más de 1,800 distritos y 80,000 colegios, por lo que puede tomar varios minutos según la velocidad de conexión y respuesta del servidor del MINEDU.
+
+Para validar o actualizar un solo distrito sin recorrer todo el catálogo:
+
+```bash
+php artisan sync:locations --district=150101
+```
 
 ---
 
@@ -259,19 +269,24 @@ Obtiene todas las instituciones educativas registradas en un distrito según su 
 brigesnote/
 ├── app/
 │   ├── Console/Commands/
-│   │   └── SyncLocations.php       # Comando 'sync:locations' (consumo de API ESCALE)
+│   │   └── SyncLocations.php       # Comando 'sync:locations' con upsert por lotes
 │   ├── Http/Controllers/
 │   │   └── LocationController.php  # Controlador de endpoints /api/
 │   └── Models/
 │       ├── District.php            # Modelo Distritos
 │       ├── Province.php            # Modelo Provincias
 │       ├── Region.php              # Modelo Regiones
-│       └── School.php              # Modelo Colegios / Escuelas
-├── database/migrations/
-│   ├── ..._create_regions_table.php
-│   ├── ..._create_provinces_table.php
-│   ├── ..._create_districts_table.php
-│   └── ..._create_schools_table.php
+│       ├── School.php              # Modelo Colegios / Escuelas
+│       └── User.php                # Modelo de usuario estándar
+├── bootstrap/
+│   ├── app.php                     # Configuración de rutas, middleware y excepciones
+│   └── providers.php               # Proveedores de la aplicación
+├── database/
+│   ├── factories/                  # Factories de Eloquent
+│   ├── migrations/                 # Esquema de regiones, provincias, distritos y colegios
+│   └── seeders/                    # Seeders de la aplicación
+├── public/
+│   └── index.php                   # Único punto de entrada HTTP
 ├── routes/
 │   └── api.php                     # Definición de rutas REST
 ├── .env.example                    # Plantilla de variables de entorno
@@ -282,9 +297,9 @@ brigesnote/
 
 ## 🛠️ Solución de Problemas Frecuentes
 
-### 1. Error: `During inheritance of ArrayAccess: Return type of ... should either be compatible`
-- **Causa:** Estás ejecutando el proyecto con PHP 8.1, 8.2 o superior.
-- **Solución:** Cambia la versión de PHP en Laragon (o en tu servidor) a **PHP 7.4 (Thread Safe)** o **PHP 8.0**.
+### 1. Error: `Composer detected issues in your platform: Your Composer dependencies require a PHP version ">= 8.3.0"`
+- **Causa:** Estás ejecutando el proyecto con una versión de PHP anterior a 8.3.
+- **Solución:** Cambia la versión de PHP en Laragon (o en tu servidor) a **PHP 8.3.36** o superior.
 
 ### 2. Error: `Service Apache can not start ... fcgid.conf` en Laragon
 - **Causa:** Descargaste la versión `nts` (Non-Thread Safe) de PHP en Windows.
@@ -293,6 +308,10 @@ brigesnote/
 ### 3. Error: `Base table or view not found: 1146 Table '...sessions' doesn't exist`
 - **Causa:** En el archivo `.env` está configurado `SESSION_DRIVER=database` sin haber migrado la tabla de sesiones.
 - **Solución:** Cambia en `.env` a `SESSION_DRIVER=file`.
+
+### 4. Error 404 en `/api/...` o exposición de `.env`
+- **Causa:** El DocumentRoot del servidor web apunta a la raíz del proyecto en lugar de `public/`.
+- **Solución:** Configura el VirtualHost/sitio para que el DocumentRoot sea la carpeta `public/`.
 
 ---
 

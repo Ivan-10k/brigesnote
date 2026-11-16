@@ -43,9 +43,11 @@ yarn-error.log*
 
 /public/storage
 /public/hot
+/public/build
 
 # Tests & Herramientas
 .phpunit.result.cache
+.phpunit.cache
 Homestead.json
 Homestead.yaml
 
