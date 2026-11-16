@@ -14,7 +14,9 @@ use Illuminate\Support\Facades\Http;
 
 class SyncLocations extends Command
 {
-    protected $signature = 'sync:locations {--district= : Sincroniza solo un distrito por ubigeo}';
+    protected $signature = 'sync:locations
+                            {--district= : Sincroniza solo un distrito por ubigeo}
+                            {--region= : Sincroniza desde una región por id}';
 
     protected $description = 'Sincroniza regiones, provincias, distritos y escuelas desde la API y las registra en la base de datos';
 
@@ -33,25 +35,18 @@ class SyncLocations extends Command
         DB::connection()->disableQueryLog();
 
         $district = $this->option('district');
+        $region = $this->option('region');
 
         if ($district !== null) {
             $this->syncSchools($district);
-            $this->flushSchools();
-
-            if ($this->hadFailures) {
-                $this->error('La sincronización finalizó con errores.');
-
-                return self::FAILURE;
-            }
-
-            $this->info('Sincronización completa.');
-
-            return self::SUCCESS;
+        } elseif ($region !== null) {
+            $this->info("Iniciando sincronización desde la región $region...");
+            $this->syncRegions($region);
+        } else {
+            $this->info('Iniciando sincronización de ubicaciones...');
+            $this->syncRegions();
         }
 
-        $this->info('Iniciando sincronización de ubicaciones...');
-
-        $this->syncRegions();
         $this->flushSchools();
 
         if ($this->hadFailures) {
@@ -65,7 +60,7 @@ class SyncLocations extends Command
         return self::SUCCESS;
     }
 
-    private function syncRegions(): void
+    private function syncRegions(?string $onlyRegionId = null): void
     {
         $this->info('Sincronizando regiones...');
 
@@ -76,10 +71,15 @@ class SyncLocations extends Command
         }
 
         $rows = [];
+        $matchedRegion = false;
 
         foreach ($regions as $region) {
             if (! isset($region['idRegion'])) {
                 continue;
+            }
+
+            if ($onlyRegionId !== null && $region['idRegion'] === $onlyRegionId) {
+                $matchedRegion = true;
             }
 
             $rows[] = [
@@ -95,10 +95,23 @@ class SyncLocations extends Command
             Region::upsert($rows, ['idRegion'], ['nombreRegion', 'pointX', 'pointY', 'zoom']);
         }
 
+        if ($onlyRegionId !== null && ! $matchedRegion) {
+            $this->hadFailures = true;
+            $this->error("No se encontró la región $onlyRegionId.");
+
+            return;
+        }
+
         foreach ($regions as $region) {
-            if (isset($region['idRegion'])) {
-                $this->syncProvinces($region['idRegion']);
+            if (! isset($region['idRegion'])) {
+                continue;
             }
+
+            if ($onlyRegionId !== null && $region['idRegion'] !== $onlyRegionId) {
+                continue;
+            }
+
+            $this->syncProvinces($region['idRegion']);
         }
 
         $this->info('Regiones sincronizadas correctamente.');

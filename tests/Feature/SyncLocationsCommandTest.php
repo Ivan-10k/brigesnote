@@ -175,4 +175,37 @@ class SyncLocationsCommandTest extends TestCase
         $this->assertDatabaseHas('schools', ['codMod' => 'P000051', 'idDistrito' => '150101']);
         Http::assertSentCount(2);
     }
+
+    public function test_sincroniza_desde_region_especifica(): void
+    {
+        $this->fakeMineduResponses(
+            [[
+                'idProvincia' => '1501',
+                'nombreProvincia' => 'LIMA',
+            ]],
+            [[
+                'idDistrito' => '150101',
+                'nombreDistrito' => 'LIMA',
+            ]],
+            [[
+                'codMod' => '0273572',
+                'cenEdu' => 'JUAN JIMENEZ PIMENTEL',
+            ]]
+        );
+
+        $exitCode = Artisan::call('sync:locations', ['--region' => '15']);
+
+        $this->assertSame(0, $exitCode);
+        $this->assertDatabaseHas('schools', ['codMod' => '0273572', 'idDistrito' => '150101']);
+    }
+
+    public function test_region_inexistente_falla(): void
+    {
+        $this->fakeMineduResponses([], [], []);
+
+        $exitCode = Artisan::call('sync:locations', ['--region' => '99']);
+
+        $this->assertSame(1, $exitCode);
+        $this->assertDatabaseCount('schools', 0);
+    }
 }

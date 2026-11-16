@@ -159,6 +159,12 @@ Para validar o actualizar un solo distrito sin recorrer todo el catálogo:
 php artisan sync:locations --district=150101
 ```
 
+Para reanudar una sincronización interrumpida desde una región:
+
+```bash
+php artisan sync:locations --region=17
+```
+
 ---
 
 ## 📡 Documentación de la API REST
